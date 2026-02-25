@@ -4,5 +4,5 @@ app = Flask(__name__)
 
 @app.route("/")
 def my_root():
-    name = "Maryam"
+    name = "khalid"
     return render_template("index.html",  name=name)
