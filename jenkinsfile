@@ -8,9 +8,14 @@ pipeline {
     stages {
         stage('Build') {
             steps {
+            
                 echo "Installing dependencies..."
                 // On ajoute || true pour ne pas crash si le fichier est absent
-                sh 'pip install -r requirements.txt || echo "Pas de requirements.txt"'
+                sh '''
+                cd myapp
+                pip install -r requirements.txt
+                pip install -r requirements.txt || echo "Pas de requirements.txt"
+                '''
             }
         }
         stage('Test & Preview') {
