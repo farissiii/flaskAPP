@@ -18,26 +18,25 @@ pipeline {
                 '''
             }
         }
-        stage('Test & Preview') {
-            steps {
-                echo "Testing Flask..."
-                script {
-                    // JENKINS_NODE_COOKIE=dontKillMe empêche Jenkins de tuer Flask à la fin du bloc sh
-                    sh '''
-                    export JENKINS_NODE_COOKIE=dontKillMe
-                    export FLASK_APP=app.py
-                    python3 -m flask run --host=0.0.0.0 &
-                    '''
-                    
-                    echo "Attente du démarrage (5s)..."
-                    sleep 5
-                    
-                    // TRÈS IMPORTANT : Cette ligne met le build en pause
-                    // C'est à ce moment-là que tu vas sur ton navigateur
-                    input message: "L'application tourne sur le port 5000. Cliquez sur 'Proceed' pour arrêter le test."
-                }
-            }
+      stage('Test & Preview') {
+    steps {
+        script {
+            // On se déplace dans le dossier s'il y en a un (vu dans tes logs: cd myapp)
+            sh '''
+            cd myapp || echo "Déjà à la racine"
+            export JENKINS_NODE_COOKIE=dontKillMe
+            export FLASK_APP=app.py
+            
+            # UTILISE CETTE COMMANDE PRÉCISE :
+            python3 -m flask run --host=0.0.0.0 --port=5000 &
+            '''
+            
+            sleep 10 // On laisse un peu plus de temps (10s) pour le chargement
+            
+            input message: "Vérifie http://localhost:5000 (ou l'IP de ton serveur). Clique sur Proceed quand tu as fini."
         }
+    }
+}
         stage('Deliver') {
             steps {
                 sh 'echo "Nettoyage..." && pkill python3 || true'
