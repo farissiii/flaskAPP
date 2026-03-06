@@ -82,7 +82,7 @@ pipeline {
         }
         success {
             echo "Pipeline réussi ! Image disponible sur Docker Hub."
-            echo "Pipeline x."
+            echo "Pipeline x v."
         }
     }
 } // Fin du pipeline
