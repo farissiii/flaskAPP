@@ -10,7 +10,6 @@ pipeline {
             steps {
             
                 echo "Installing dependencies..."
-                // On ajoute || true pour ne pas crash si le fichier est absent
                 sh '''
                 cd myapp
                 pip install -r requirements.txt
@@ -21,13 +20,12 @@ pipeline {
       stage('Test & Preview') {
     steps {
         script {
-            // On se déplace dans le dossier s'il y en a un (vu dans tes logs: cd myapp)
             sh '''
             cd myapp || echo "Déjà à la racine"
             export JENKINS_NODE_COOKIE=dontKillMe
             export FLASK_APP=app.py
             
-            # UTILISE CETTE COMMANDE PRÉCISE :
+            
             python3 -m flask run --host=0.0.0.0 --port=5000 &
             '''
             
