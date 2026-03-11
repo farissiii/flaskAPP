@@ -3,8 +3,6 @@ pipeline {
         node { label 'docker-agent-python' }
     }
 
-    // Cette section aide Jenkins à trouver la commande 'docker'
-    // Assure-toi que 'docker' est configuré dans Manage Jenkins > Global Tool Configuration
     tools {
         dockerTool 'docker' 
     }
@@ -38,6 +36,13 @@ pipeline {
         stage('Test & Preview') {
             steps {
                 script {
+                    // --- AJOUT DE LA VÉRIFICATION DE SYNTAXE (SANS INSTALLATION) ---
+                    echo "Vérification de la syntaxe du code..."
+                    // Cette commande vérifie tous les fichiers .py dans le dossier myapp
+                    // Si une erreur est trouvée, le pipeline s'arrête ici.
+                    sh "python3 -m py_compile myapp/*.py"
+                    
+                    // Si la syntaxe est OK, on continue le lancement habituel
                     sh '''
                     cd myapp
                     export FLASK_APP=app.py
@@ -48,41 +53,5 @@ pipeline {
                     input message: "Vérifie l'app sur le port 5000. Clique sur Proceed pour continuer."
                 }
             }
-        }       
-
-        stage('Build Docker Image') {
-            steps {
-                script {
-                    echo "Construction de l'image Docker..."
-                    // Vérifie bien que ton Dockerfile est dans le dossier myapp/
-                    sh "docker build -t ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ./myapp"
-                    sh "docker tag ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
-                }
-            }
-        }
-
-        stage('Push to Registry') {
-            steps {
-                script {
-                    // Utilisation sécurisée des identifiants Docker Hub
-                    docker.withRegistry('', REGISTRY_CREDENTIALS_ID) {
-                        echo "Push vers Docker Hub..."
-                        sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}"
-                        sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            echo "Nettoyage du processus Flask..."
-            sh 'pkill -f "flask run" || true'
-        }
-        success {
-            echo "Pipeline réussi ! Image disponible sur Docker Hub."
-            echo "Pipeline x v."
-        }
-    }
-} // Fin du pipeline
+        }     
+}
