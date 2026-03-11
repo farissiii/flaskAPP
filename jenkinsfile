@@ -3,9 +3,6 @@ pipeline {
         node { label 'docker-agent-python' }
     }
 
-    tools {
-        dockerTool 'docker' 
-    }
 
     environment {
         DOCKER_HUB_USER = 'khaliiiiid'
@@ -26,8 +23,7 @@ pipeline {
                 pip install -r requirements.txt || echo "Pas de requirements.txt"
                 '''
             }
-        } // Closed the 'steps' and then the 'stage'
-
+        }
         stage('Test & Preview') {
             steps {
                 script {
@@ -46,6 +42,41 @@ pipeline {
                     input message: "Vérifie l'app sur le port 5000. Clique sur Proceed pour continuer."
                 }
             }
-        } // End of 'Test & Preview' stage
-    } // End of 'stages' block
-} // End of 'pipeline' block
+        }        
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo "Construction de l'image Docker..."
+                    // Vérifie bien que ton Dockerfile est dans le dossier myapp/
+                    sh "docker build -t ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ./myapp"
+                    sh "docker tag ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
+                }
+            }
+        }
+
+        stage('Push to Registry') {
+            steps {
+                script {
+                    // Utilisation sécurisée des identifiants Docker Hub
+                    docker.withRegistry('', REGISTRY_CREDENTIALS_ID) {
+                        echo "Push vers Docker Hub..."
+                        sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}"
+                        sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "Nettoyage du processus Flask..."
+            sh 'pkill -f "flask run" || true'
+        }
+        success {
+            echo "Pipeline réussi ! Image disponible sur Docker Hub."
+            echo "Pipeline x v."
+        }
+    }
+} // Fin du pipeline
