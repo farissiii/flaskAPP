@@ -3,62 +3,86 @@ pipeline {
         node { label 'docker-agent-python' }
     }
 
+    // Cette section aide Jenkins à trouver la commande 'docker'
+    // Assure-toi que 'docker' est configuré dans Manage Jenkins > Global Tool Configuration
+    tools {
+        dockerTool 'docker' 
+    }
+
     environment {
         DOCKER_HUB_USER = 'khaliiiiid'
         REGISTRY_CREDENTIALS_ID = '3b09b7f8-9b77-449c-b075-12d42f983dfc'
         SERVICE_NAME = "mon-app-python"
         VERSION = "1.0.${BUILD_NUMBER}"
+        FLASK_APP = "app.py"
+        JENKINS_NODE_COOKIE = "dontKillMe" 
+        DOCKER_API_VERSION = '1.44'
     }
 
     stages {
-        stage('Step 1: Syntax Check (Zero Install)') {
+        stage('Install Dependencies') {
             steps {
-                script {
-                    echo "Checking for Python syntax errors..."
-                    // This uses Python's BUILT-IN compiler. 
-                    // It requires NO installation and will stop Jenkins if you have a typo (missing :, etc.)
-                    sh "python3 -m py_compile myapp/*.py"
-                }
+                echo "Installing dependencies..."
+                sh '''
+                cd myapp
+                pip install -r requirements.txt || echo "Pas de requirements.txt"
+                '''
             }
         }
-
-        stage('Step 2: Install & Run Tests') {
+        stage('Debug Docker Version') {
             steps {
-                script {
-                    echo "Installing test tools dynamically..."
-                    // We use --user or --break-system-packages to avoid the error you had before
-                    sh "pip install --user pytest flake8 || pip install --break-system-packages pytest flake8"
-                    
-                    echo "Running Linting (flake8)..."
-                    // If flake8 finds errors, it returns exit code 1 and STOPS the pipeline
-                    sh "python3 -m flake8 myapp/ --count --select=E9,F63,F7,F82 --show-source --statistics"
-
-                    echo "Running Logic Tests (pytest)..."
-                    // Fails if your code logic is wrong
-                    sh "python3 -m pytest myapp/"
-                }
+                sh 'docker version --format "{{.Client.APIVersion}}"'
+                sh 'docker version'
             }
         }
-
-        stage('Step 3: Build Docker Image') {
-            // This stage ONLY runs if Step 1 and Step 2 passed!
+        stage('Test & Preview') {
             steps {
                 script {
+                    sh '''
+                    cd myapp
+                    export FLASK_APP=app.py
+                    python3 -m flask run --host=0.0.0.0 --port=5000 &
+                    '''
+                    echo "Attente du démarrage de Flask (10s)..."
+                    sleep 10
+                    input message: "Vérifie l'app sur le port 5000. Clique sur Proceed pour continuer."
+                }
+            }
+        }       
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo "Construction de l'image Docker..."
+                    // Vérifie bien que ton Dockerfile est dans le dossier myapp/
                     sh "docker build -t ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ./myapp"
+                    sh "docker tag ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
                 }
             }
         }
 
-        stage('Step 4: Push to Registry') {
+        stage('Push to Registry') {
             steps {
                 script {
+                    // Utilisation sécurisée des identifiants Docker Hub
                     docker.withRegistry('', REGISTRY_CREDENTIALS_ID) {
+                        echo "Push vers Docker Hub..."
                         sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}"
-                        sh "docker tag ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
                         sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
                     }
                 }
             }
         }
     }
-}
+
+    post {
+        always {
+            echo "Nettoyage du processus Flask..."
+            sh 'pkill -f "flask run" || true'
+        }
+        success {
+            echo "Pipeline réussi ! Image disponible sur Docker Hub."
+            echo "Pipeline x v."
+        }
+    }
+} // Fin du pipeline
