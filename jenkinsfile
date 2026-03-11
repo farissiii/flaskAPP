@@ -26,20 +26,13 @@ pipeline {
                 pip install -r requirements.txt || echo "Pas de requirements.txt"
                 '''
             }
-        }
-        stage('Debug Docker Version') {
-            steps {
-                sh 'docker version --format "{{.Client.APIVersion}}"'
-                sh 'docker version'
-            }
-        }
+        } // Closed the 'steps' and then the 'stage'
+
         stage('Test & Preview') {
             steps {
                 script {
                     // --- AJOUT DE LA VÉRIFICATION DE SYNTAXE (SANS INSTALLATION) ---
                     echo "Vérification de la syntaxe du code..."
-                    // Cette commande vérifie tous les fichiers .py dans le dossier myapp
-                    // Si une erreur est trouvée, le pipeline s'arrête ici.
                     sh "python3 -m py_compile myapp/*.py"
                     
                     // Si la syntaxe est OK, on continue le lancement habituel
@@ -53,5 +46,6 @@ pipeline {
                     input message: "Vérifie l'app sur le port 5000. Clique sur Proceed pour continuer."
                 }
             }
-        }     
-}
+        } // End of 'Test & Preview' stage
+    } // End of 'stages' block
+} // End of 'pipeline' block
