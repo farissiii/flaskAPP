@@ -67,6 +67,27 @@ stages {
     }
 }
 
+     stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // On utilise l'identifiant de tes credentials k3s (ex: 'k3s-auth')
+                    withKubeConfig([credentialsId: 'k3s-auth']) {
+                        echo "Déploiement de la version ${VERSION} sur k3s..."
+                        
+                        // 1. On remplace le texte 'IMAGE_TAG' par la vraie version dans le fichier YAML
+                        sh "sed -i 's/IMAGE_TAG/${VERSION}/g' k8s/deployment.yaml"
+                        
+                        // 2. On applique la configuration au cluster
+                        sh "kubectl apply -f k8s/deployment.yaml"
+                        sh "kubectl apply -f k8s/service.yaml"
+                        
+                        // 3. On vérifie le déploiement
+                        sh "kubectl rollout status deployment/flask-app-deployment"
+                    }
+                }
+            }
+        }
+
 post {
     always {
         echo "Nettoyage du processus Flask..."
