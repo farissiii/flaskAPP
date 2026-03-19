@@ -65,8 +65,6 @@ stages {
             }
         }
     }
-}
-   
      stage('Deploy to Kubernetes') {
             steps {
                 script {
@@ -89,6 +87,7 @@ stages {
             }
         }
 
+    }
 post {
     always {
         echo "Nettoyage du processus Flask..."
