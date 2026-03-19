@@ -171,3 +171,95 @@ post {
         echo "Pipeline x v."
     }
 }
+******************
+pipeline {
+    agent none // On définit l'agent par stage
+
+    environment {
+        DOCKER_HUB_USER = 'khaliiiiid'
+        REGISTRY_CREDENTIALS_ID = '3b09b7f8-9b77-449c-b075-12d42f983dfc'
+        SERVICE_NAME = "mon-app-python"
+        VERSION = "1.0.${BUILD_NUMBER}"
+        DOCKER_API_VERSION = '1.44' 
+        FLASK_APP = "app.py"
+        JENKINS_NODE_COOKIE = "dontKillMe" 
+    }
+
+    stages {
+        // --- BLOC CI (Effectué sur l'agent Python/Docker) ---
+        stage('CI - Build & Test') {
+            agent { label 'docker-agent-python' }
+            stages {
+                stage('Install Dependencies') {
+                    steps {
+                        sh 'cd myapp && pip install -r requirements.txt || echo "Pas de requirements.txt"'
+                    }
+                }
+
+                stage('Test & Preview') {
+                    steps {
+                        script {
+                            echo "Vérification de la syntaxe..."
+                            sh "python3 -m py_compile myapp/*.py"
+                            
+                            // Lancement de Flask en arrière-plan
+                            sh '''
+                                cd myapp
+                                export FLASK_APP=app.py
+                                python3 -m flask run --host=0.0.0.0 --port=5000 &
+                            '''
+                            sleep 5
+                            input message: "Vérifie l'app sur le port 5000. Clique sur Proceed pour continuer."
+                            
+                            // Nettoyage immédiat du Flask de test après validation
+                            sh 'pkill -f "flask run" || true'
+                        }
+                    }
+                }        
+
+                stage('Build & Push Docker') {
+                    steps {
+                        script {
+                            // On utilise retry pour pallier les erreurs de timeout réseau
+                            retry(2) {
+                                docker.withRegistry('', REGISTRY_CREDENTIALS_ID) {
+                                    echo "Construction et Push..."
+                                    def customImage = docker.build("${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}", "./myapp")
+                                    customImage.push()
+                                    customImage.push("latest")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- BLOC CD (Effectué sur l'agent K8S) ---
+        stage('Deploy to Kubernetes') {
+            agent { label 'k8s-manager-node' }
+            steps {
+                script {
+                    // Jenkins va automatiquement refaire un 'checkout scm' ici 
+                    // ce qui nous donne accès au dossier k8s/
+                    withKubeConfig([credentialsId: 'k3s-auth']) {
+                        echo "Déploiement de la version ${VERSION}..."
+                        
+                        // Modification du tag d'image dans le fichier YAML
+                        sh "sed -i 's/IMAGE_TAG/${VERSION}/g' k8s/deployment.yaml"
+                        
+                        sh "kubectl apply -f k8s/deployment.yaml"
+                        sh "kubectl apply -f k8s/service.yaml"
+                        
+                        // Attente du déploiement
+                        sh "kubectl rollout status deployment/flask-app-deployment --timeout=60s"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            echo "Le pipeline a échoué."
+        }
