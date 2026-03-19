@@ -1,103 +1,60 @@
 pipeline {
-    agent { 
-        node { label 'docker-agent-python' }
-    }
-environment {
-    DOCKER_HUB_USER = 'khaliiiiid'
-    REGISTRY_CREDENTIALS_ID = '3b09b7f8-9b77-449c-b075-12d42f983dfc'
-    SERVICE_NAME = "mon-app-python"
-    VERSION = "1.0.${BUILD_NUMBER}"
-    FLASK_APP = "app.py"
-    JENKINS_NODE_COOKIE = "dontKillMe" 
-    DOCKER_API_VERSION = '1.44'
-}
-
-stages {
-    stage('Install Dependencies') {
-        steps {
-            echo "Installing dependencies..."
-            sh '''
-            cd myapp
-            pip install -r requirements.txt || echo "Pas de requirements.txt"
-            '''
-        }
-    }
-    stage('Test & Preview') {
-        steps {
-            script {
-                // --- AJOUT DE LA VÉRIFICATION DE SYNTAXE (SANS INSTALLATION) ---
-                echo "Vérification de la syntaxe du code..."
-                sh "python3 -m py_compile myapp/*.py"
-                
-                // Si la syntaxe est OK, on continue le lancement habituel
-                sh '''
-                cd myapp
-                export FLASK_APP=app.py
-                python3 -m flask run --host=0.0.0.0 --port=5000 &
-                '''
-                echo "Attente du démarrage de Flask (10s)..."
-                sleep 10
-                input message: "Vérifie l'app sur le port 5000. Clique sur Proceed pour continuer."
-            }
-        }
-    }        
-
-    stage('Build Docker Image') {
-        steps {
-            script {
-                echo "Construction de l'image Docker..."
-                // Vérifie bien que ton Dockerfile est dans le dossier myapp/
-                sh "docker build -t ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ./myapp"
-                sh "docker tag ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
-            }
+    agent {
+        kubernetes {
+            // Utilise le nom de ton Cloud configuré dans Jenkins
+            cloud 'kubernetes' 
+            yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: python-docker
+    image: python:3.9 # Image pour tes tests et pip
+    command: ['cat']
+    tty: true
+  - name: kubectl
+    image: bitnami/kubectl:latest # Image qui contient déjà kubectl
+    command: ['cat']
+    tty: true
+'''
         }
     }
 
-    stage('Push to Registry') {
-        steps {
-            script {
-                // Utilisation sécurisée des identifiants Docker Hub
-                docker.withRegistry('', REGISTRY_CREDENTIALS_ID) {
-                    echo "Push vers Docker Hub..."
-                    sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}"
-                    sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
-                }
-            }
-        }
+    environment {
+        // Garde tes variables actuelles
+        DOCKER_HUB_USER = 'khaliiiiid'
+        SERVICE_NAME = "mon-app-python"
+        VERSION = "1.0.${BUILD_NUMBER}"
+        REGISTRY_CREDENTIALS_ID = '3b09b7f8-9b77-449c-b075-12d42f983dfc'
     }
-}
 
-     s// --- NOUVEAU STAGE CD : NE MODIFIE PAS TES STAGES PRÉCÉDENTS ---
-        stage('Deploy to Kubernetes') {
+    stages {
+        // --- TES STAGES DE CI (Build & Push) ---
+        // (Garde ce que tu as fait, utilise le container 'python-docker')
+
+        // --- NOUVEAU STAGE DE CD (Le déploiement local) ---
+        stage('Deploy to k3s Local') {
             steps {
-                script {
-                    // Remplace 'k3s-auth' par l'ID de ton credential k3s dans Jenkins
-                    withKubeConfig([credentialsId: 'k3s-auth']) {
-                        echo "Déploiement de la version ${VERSION} sur le cluster local..."
-                        
-                        // 1. Appliquer le Service (qui ne change jamais)
-                        sh "kubectl apply -f k8s/service.yaml"
-                        
-                        // 2. LA CORRECTION DU SED : 
-                        // On utilise 'cat' pour lire et on envoie le résultat à 'kubectl apply'
-                        // Comme ça, ton fichier 'k8s/deployment.yaml' reste intact avec le mot 'IMAGE_TAG'
-                        sh "cat k8s/deployment.yaml | sed 's/IMAGE_TAG/${VERSION}/g' | kubectl apply -f -"
-                        
-                        // 3. Vérifier que les Pods démarrent bien
-                        sh "kubectl rollout status deployment/flask-app-deployment"
+                container('kubectl') { // On utilise le container qui a kubectl
+                    script {
+                        // Utilise l'ID de tes credentials k3s
+                        withKubeConfig([credentialsId: 'k3s-auth']) {
+                            echo "Déploiement sur le cluster local..."
+                            
+                            // 1. Appliquer les fichiers (Assure-toi que le dossier k8s existe)
+                            sh "kubectl apply -f k8s/deployment.yaml"
+                            sh "kubectl apply -f k8s/service.yaml"
+
+                            // 2. LA MEILLEURE MÉTHODE : On met à jour l'image sans 'sed'
+                            // C'est beaucoup plus robuste que de modifier le fichier texte
+                            sh "kubectl set image deployment/flask-app-deployment flask-app=${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}"
+                            
+                            // 3. Vérification du statut
+                            sh "kubectl rollout status deployment/flask-app-deployment"
+                        }
                     }
                 }
             }
         }
-
-post {
-    always {
-        echo "Nettoyage du processus Flask..."
-        sh 'pkill -f "flask run" || true'
     }
-    success {
-        echo "Pipeline réussi ! Image disponible sur Docker Hub."
-        echo "Pipeline x v."
-    }
-  }
 }
