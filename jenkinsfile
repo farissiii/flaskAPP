@@ -66,6 +66,7 @@ pipeline {
 
         // --- STAGE DE CD (DÉPLOIEMENT) ---
         stage('Deploy to Kubernetes') {
+            agent { label 'k8s-manager-node' }
             steps {
                 script {
                     // Utilise l'ID 'k3s-auth' que tu as créé avec le fichier k3s.yaml
