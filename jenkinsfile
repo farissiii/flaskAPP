@@ -1,6 +1,28 @@
 pipeline {
-    agent { 
-        label 'k8s-python-agent' // Jenkins va créer un Pod dynamiquement via votre Cloud K8s
+    agent {
+        kubernetes {
+            yaml '''
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: python-docker
+    image: python:3.10-slim
+    command: ["cat"]
+    tty: true
+    volumeMounts:
+    - mountPath: /var/run/docker.sock
+      name: docker-sock
+  - name: kubectl
+    image: bitnami/kubectl:latest
+    command: ["cat"]
+    tty: true
+  volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
+'''
+        }
     }
 
     environment {
@@ -13,30 +35,40 @@ pipeline {
     stages {
         stage('CI - Build & Test') {
             steps {
-                script {
-                    // RÉSOLUTION DU PROBLÈME D'API DOCKER 1.44
-                    // On télécharge le client récent une fois pour toutes au début
-                    sh '''
-                    if [ ! -f /usr/local/bin/docker ]; then
+                container('python-docker') {
+                    script {
+                        echo "Mise à jour du client Docker pour éviter l'erreur API 1.44..."
+                        sh '''
+                        apt-get update && apt-get install -y curl
                         curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.3.1.tgz | tar xzv
                         mv docker/docker /usr/local/bin/
-                    fi
-                    '''
-                    
-                    echo "Installation et Tests..."
-                    sh 'cd myapp && pip install -r requirements.txt'
-                    sh "python3 -m py_compile myapp/*.py"
+                        '''
+
+                        echo "Installation des dépendances Python..."
+                        sh 'cd myapp && pip install -r requirements.txt'
+
+                        echo "Vérification syntaxe..."
+                        sh "python3 -m py_compile myapp/*.py"
+
+                        echo "Lancement Flask pour test..."
+                        sh 'cd myapp && export FLASK_APP=app.py && python3 -m flask run --host=0.0.0.0 --port=5000 &'
+                        sleep 5
+                        input message: "Vérifie l'app. Clique sur Proceed pour continuer."
+                        sh 'pkill -f "flask run" || true'
+                    }
                 }
             }
         }
 
-        stage('Build & Push Image') {
+        stage('Build & Push Docker') {
             steps {
-                script {
-                    docker.withRegistry('', REGISTRY_CREDENTIALS_ID) {
-                        def img = docker.build("${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}", "./myapp")
-                        img.push()
-                        img.push("latest")
+                container('python-docker') {
+                    script {
+                        docker.withRegistry('', REGISTRY_CREDENTIALS_ID) {
+                            def img = docker.build("${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}", "./myapp")
+                            img.push()
+                            img.push("latest")
+                        }
                     }
                 }
             }
@@ -44,11 +76,17 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                // Utilise le même agent pour lancer kubectl
-                withKubeConfig([credentialsId: 'k3s-auth']) {
-                    sh "sed -i 's/IMAGE_TAG/${VERSION}/g' k8s/deployment.yaml"
-                    sh "kubectl apply -f k8s/deployment.yaml"
-                    sh "kubectl rollout status deployment/flask-app-deployment"
+                container('kubectl') {
+                    script {
+                        // On utilise les credentials 'k3s-auth' pour se connecter au cluster
+                        withKubeConfig([credentialsId: 'k3s-auth']) {
+                            echo "Déploiement sur K8s..."
+                            sh "sed -i 's/IMAGE_TAG/${VERSION}/g' k8s/deployment.yaml"
+                            sh "kubectl apply -f k8s/deployment.yaml"
+                            sh "kubectl apply -f k8s/service.yaml"
+                            sh "kubectl rollout status deployment/flask-app-deployment --timeout=60s"
+                        }
+                    }
                 }
             }
         }
