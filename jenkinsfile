@@ -67,21 +67,23 @@ stages {
     }
 }
 
-     stage('Deploy to Kubernetes') {
+     s// --- NOUVEAU STAGE CD : NE MODIFIE PAS TES STAGES PRÉCÉDENTS ---
+        stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    // On utilise l'identifiant de tes credentials k3s (ex: 'k3s-auth')
+                    // Remplace 'k3s-auth' par l'ID de ton credential k3s dans Jenkins
                     withKubeConfig([credentialsId: 'k3s-auth']) {
-                        echo "Déploiement de la version ${VERSION} sur k3s..."
+                        echo "Déploiement de la version ${VERSION} sur le cluster local..."
                         
-                        // 1. On remplace le texte 'IMAGE_TAG' par la vraie version dans le fichier YAML
-                        sh "sed -i 's/IMAGE_TAG/${VERSION}/g' k8s/deployment.yaml"
-                        
-                        // 2. On applique la configuration au cluster
-                        sh "kubectl apply -f k8s/deployment.yaml"
+                        // 1. Appliquer le Service (qui ne change jamais)
                         sh "kubectl apply -f k8s/service.yaml"
                         
-                        // 3. On vérifie le déploiement
+                        // 2. LA CORRECTION DU SED : 
+                        // On utilise 'cat' pour lire et on envoie le résultat à 'kubectl apply'
+                        // Comme ça, ton fichier 'k8s/deployment.yaml' reste intact avec le mot 'IMAGE_TAG'
+                        sh "cat k8s/deployment.yaml | sed 's/IMAGE_TAG/${VERSION}/g' | kubectl apply -f -"
+                        
+                        // 3. Vérifier que les Pods démarrent bien
                         sh "kubectl rollout status deployment/flask-app-deployment"
                     }
                 }
