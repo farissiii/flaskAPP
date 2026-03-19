@@ -3,7 +3,6 @@ pipeline {
         node { label 'docker-agent-python' }
     }
 
-
     environment {
         DOCKER_HUB_USER = 'khaliiiiid'
         REGISTRY_CREDENTIALS_ID = '3b09b7f8-9b77-449c-b075-12d42f983dfc'
@@ -24,14 +23,13 @@ pipeline {
                 '''
             }
         }
+
         stage('Test & Preview') {
             steps {
                 script {
-                    // --- AJOUT DE LA VÉRIFICATION DE SYNTAXE (SANS INSTALLATION) ---
                     echo "Vérification de la syntaxe du code..."
                     sh "python3 -m py_compile myapp/*.py"
                     
-                    // Si la syntaxe est OK, on continue le lancement habituel
                     sh '''
                     cd myapp
                     export FLASK_APP=app.py
@@ -48,7 +46,6 @@ pipeline {
             steps {
                 script {
                     echo "Construction de l'image Docker..."
-                    // Vérifie bien que ton Dockerfile est dans le dossier myapp/
                     sh "docker build -t ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ./myapp"
                     sh "docker tag ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION} ${DOCKER_HUB_USER}/${SERVICE_NAME}:latest"
                 }
@@ -58,7 +55,6 @@ pipeline {
         stage('Push to Registry') {
             steps {
                 script {
-                    // Utilisation sécurisée des identifiants Docker Hub
                     docker.withRegistry('', REGISTRY_CREDENTIALS_ID) {
                         echo "Push vers Docker Hub..."
                         sh "docker push ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}"
@@ -67,29 +63,41 @@ pipeline {
                 }
             }
         }
+
+        // --- STAGE DE CD (DÉPLOIEMENT) ---
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Utilise l'ID 'k3s-auth' que tu as créé avec le fichier k3s.yaml
+                    withKubeConfig([credentialsId: 'k3s-auth']) {
+                        echo "Déploiement de la version ${VERSION} sur le cluster k3s (10.0.0.10)..."
+                        
+                        // Remplace le placeholder dans le YAML par la vraie version
+                        // Assure-toi que ton fichier deployment.yaml contient bien 'IMAGE_TAG'
+                        sh "sed -i 's/IMAGE_TAG/${VERSION}/g' k8s/deployment.yaml"
+                        
+                        // Application des fichiers de config sur k3s
+                        sh "kubectl apply -f k8s/deployment.yaml"
+                        sh "kubectl apply -f k8s/service.yaml"
+                        
+                        // Vérification que le déploiement s'est bien passé
+                        sh "kubectl rollout status deployment/flask-app-deployment"
+                    }
+                }
+            }
+        }
     }
 
     post {
         always {
-            echo "Nettoyage du processus Flask..."
+            echo "Nettoyage du processus Flask de test..."
             sh 'pkill -f "flask run" || true'
         }
         success {
-            echo "Pipeline réussi ! Image disponible sur Docker Hub."
-            echo "Pipeline x v."
+            echo "Pipeline CI/CD réussi ! L'application est en ligne sur Kubernetes."
+        }
+        failure {
+            echo "Le pipeline a échoué. Vérifiez les logs."
         }
     }
-        stage('Deploy to Kubernetes') {
-            steps {
-                script {
-                        withKubeConfig([credentialsId: 'k3s-auth']) {
-                        echo "Déploiement de la version ${VERSION} sur k3s..."
-                        sh "sed -i 's/IMAGE_TAG/${VERSION}/g' k8s/deployment.yaml"
-                        sh "kubectl apply -f k8s/deployment.yaml"
-                        sh "kubectl apply -f k8s/service.yaml"
-                        sh "kubectl rollout status deployment/flask-app-deployment"
-                     }
-                 }
-             }
-          }
-} 
+}
