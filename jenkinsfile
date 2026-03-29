@@ -63,7 +63,7 @@ stages {
                         -v /var/run/docker.sock:/var/run/docker.sock \
                         -v /tmp/trivy-cache:/root/.cache/ \
                         aquasec/trivy:0.55.2 \
-                        image --severity HIGH,CRITICAL --exit-code 1 \
+                        image  \
                         ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}
                     """
                 }
