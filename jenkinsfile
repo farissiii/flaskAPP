@@ -52,7 +52,23 @@ stages {
             }
         }
     }
-
+    stage('Security Scan (Trivy)') {
+            steps {
+                script {
+                    echo "Analyse de sécurité de l'image avec Trivy..."
+                    
+                    // On adapte la commande pour Linux et pour ton image spécifique
+                    sh """
+                    docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v /tmp/trivy-cache:/root/.cache/ \
+                        aquasec/trivy:0.55.2 \
+                        image --severity HIGH,CRITICAL --exit-code 1 \
+                        ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}
+                    """
+                }
+            }
+        }
     stage('Push to Registry') {
         steps {
             script {
