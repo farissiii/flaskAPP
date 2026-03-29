@@ -59,6 +59,7 @@ stages {
                     
                     // On adapte la commande pour Linux et pour ton image spécifique
                     sh """
+                    trivy image --clear-cache ${DOCKER_HUB_USER}/${SERVICE_NAME}:${VERSION}
                     docker run --rm \
                         -v /var/run/docker.sock:/var/run/docker.sock \
                         -v /tmp/trivy-cache:/root/.cache/ \
