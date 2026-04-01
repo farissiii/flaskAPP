@@ -21,3 +21,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN usermod -aG docker jenkins
 
 USER jenkin
+*************************************
+FROM alpine:latest AS downloader
+RUN apk add --no-cache curl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+RUN chmod +x kubectl
+
+
+FROM khaliiiiid/jenkins-agent-python:latest
+
+USER root
+RUN apk add --no-cache git
+RUN apk update && apk upgrade && \
+    pip install --no-cache-dir --upgrade --force-reinstall --ignore-installed \
+    "jaraco.context>=6.1.0" \
+    "wheel>=0.46.2" \
+    "packaging>=24.0" && \
+    rm -rf /var/cache/apk/*
+
+
+
+COPY --from=downloader /kubectl /usr/local/bin/kubectl
+
+# On s'assure que l'utilisateur jenkins peut l'exécuter
+USER jenkins
